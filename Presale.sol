@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.5;
+pragma solidity 0.8.5;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
@@ -11,31 +10,29 @@ contract Presale is AccessControl, ReentrancyGuard {
     bytes32 public constant MANAGER = keccak256("MANAGER");
 
     address public pasv_token;
-    address payable public marketing_wallet;
-    address payable public manager_1;
-    address payable public manager_2;
+    address payable internal marketing_wallet;
+    address payable internal manager_1;
+    address payable internal manager_2;
     address private uniswapV2Pair;
 
     uint8 internal constant DECIMALS = 6;
     uint256 internal constant ZEROES = 10**DECIMALS;
     uint256 internal constant TOTAL_SUPPLY = 1000000000 * 10**6 * ZEROES;
 
-    IUniswapV2Router02 internal _router;
-
     // Total Allocations
-    uint256 totalLiquidityAmount;
-    uint256 totalMarketingAmount;
+    uint256 internal totalLiquidityAmount;
+    uint256 internal totalMarketingAmount;
 
     // Total Tier Allocation
-    uint256 totalEthTier1 = 0;
-    uint256 totalEthTier2 = 0;
-    uint256 totalEthTier3 = 0;
+    uint256 internal totalEthTier1 = 0;
+    uint256 internal totalEthTier2 = 0;
+    uint256 internal totalEthTier3 = 0;
 
     // Liquidity Deployed Flag
-    bool liquidityIsDeployed = false;
+    bool internal liquidityIsDeployed = false;
 
     // PASV Token Address Set Flag
-    bool pasvAddressSet = false;
+    bool internal pasvAddressSet = false;
 
     // Total Presale Pool Amount
     uint256 public totalPresalePoolAmount = 75000000000000 * 10**6;
@@ -43,7 +40,7 @@ contract Presale is AccessControl, ReentrancyGuard {
     uint256 public totalLiquidityPoolAmount = 500000000000000 * 10**6;
 
     // Track token launch date and time
-    uint256 _tokenLaunchTime = 1630519200;
+    uint256 internal _tokenLaunchTime = 1631127600;
 
     struct Buyer {
         bool hasDeposited;
@@ -56,10 +53,10 @@ contract Presale is AccessControl, ReentrancyGuard {
 
     // Track buyers and allocations
     mapping(address => Buyer) public presaleBuyers;
-    address[] buyerAddresses;
+    address[] internal buyerAddresses;
 
     uint256 public totalAmountWithdrawn = 0;
-    uint256 totalPresaleWeightedBalance = 0;
+    uint256 internal totalPresaleWeightedBalance = 0;
 
     constructor(
         address payable _manager_1,
@@ -73,20 +70,23 @@ contract Presale is AccessControl, ReentrancyGuard {
         manager_1 = _manager_1;
         manager_2 = _manager_2;
 
-
         totalLiquidityAmount = 0;
         totalMarketingAmount = 0;
     }
 
     receive() external payable {}
 
+    function getPresaleAmount() public view returns (uint256) {
+        return totalPresalePoolAmount;
+    }
+
     function getCurrentTier() public view returns (uint256) {
-        uint256 tier1Start = 1628575200;
-        uint256 tier1End = 1629266399;
-        uint256 tier2Start = 1629266400;
-        uint256 tier2End = 1629871199;
-        uint256 tier3Start = 1629871200;
-        uint256 tier3End = 1630475999;
+        uint256 tier1Start = 1628794800;
+        uint256 tier1End = 1629917998;
+        uint256 tier2Start = 1629918000;
+        uint256 tier2End = 1630522798;
+        uint256 tier3Start = 1630522800;
+        uint256 tier3End = 1631127598;
 
         if (block.timestamp > tier1Start && block.timestamp < tier1End) {
             return 1;
@@ -104,7 +104,7 @@ contract Presale is AccessControl, ReentrancyGuard {
         require(msg.value > 0);
 
         // Check mapping if they deposited already
-        bool alreadyDeposited = presaleBuyers[msg.sender].hasDeposited; // Ternary necessary? :)
+        bool alreadyDeposited = presaleBuyers[msg.sender].hasDeposited;
 
         // If alreadyDeposited == false then add msg.sender to buyerAddresses
         if (!alreadyDeposited) {
@@ -160,12 +160,12 @@ contract Presale is AccessControl, ReentrancyGuard {
         }
     }
 
-    function getDepositedEthBalance() external view returns (uint256) {
+    function getDepositedEthBalance(address depositor) external view returns (uint256) {
         // Require msg.sender has deposited
-        require(presaleBuyers[msg.sender].hasDeposited == true);
-        uint256 tier1Deposit = presaleBuyers[msg.sender].depositedEthTier1;
-        uint256 tier2Deposit = presaleBuyers[msg.sender].depositedEthTier2;
-        uint256 tier3Deposit = presaleBuyers[msg.sender].depositedEthTier3;
+        require(presaleBuyers[depositor].hasDeposited == true);
+        uint256 tier1Deposit = presaleBuyers[depositor].depositedEthTier1;
+        uint256 tier2Deposit = presaleBuyers[depositor].depositedEthTier2;
+        uint256 tier3Deposit = presaleBuyers[depositor].depositedEthTier3;
         uint256 totalDepositedBalance = tier1Deposit + tier2Deposit + tier3Deposit;
         return totalDepositedBalance;
     }
@@ -173,7 +173,7 @@ contract Presale is AccessControl, ReentrancyGuard {
     function setPassiveTokenAddress(address _pasv) external {
         // Only callable by admin
         require(hasRole(MANAGER, msg.sender));
-
+        require(_pasv != address(0));
         // Set Passive Token Address
         pasv_token = _pasv;
 
@@ -181,7 +181,7 @@ contract Presale is AccessControl, ReentrancyGuard {
         pasvAddressSet = true;
     }
 
-    function deployLiquidity() external {
+    function deployLiquidity(uint256 tokensToBurn) external {
         // Only callable by admin
         require(hasRole(MANAGER, msg.sender));
 
@@ -191,12 +191,18 @@ contract Presale is AccessControl, ReentrancyGuard {
         // Make sure that passive token address has been set
         require(pasvAddressSet == true);
 
-        // Refernce PASV token
+        // Reference PASV token
         IERC20 token = IERC20(pasv_token);
         uint256 contractBalance = token.balanceOf(address(this));
 
         // Check PASV balance == 575Trillion
         require(contractBalance == (575000000000000 * 10**6));
+
+        // Burn certain amount of tokens based on presale soft cap, can't be more than half.
+        require((tokensToBurn * 10**6) <= 37500000000000 * 10**6);
+        // Burn Address
+        token.transfer(address(0x0000000000000000000000000000000299792458), (tokensToBurn * 10**6));
+        totalPresalePoolAmount = totalPresalePoolAmount - (tokensToBurn * 10**6);
 
         // Calculate Distribution
         calculateDistribution();
@@ -237,10 +243,12 @@ contract Presale is AccessControl, ReentrancyGuard {
         // Check that liquidity has been deployed
         require(liquidityIsDeployed == true);
 
+        // Require msg.sender hasn't claimed already
+        require(presaleBuyers[msg.sender].hasClaimed == false);
+
         // Require msg.sender has deposited more than 0
         require(presaleBuyers[msg.sender].hasDeposited == true);
 
-        // amount = buyerWeighted / presaleWeighted * pasv_token_pool
         uint256 buyerAmountAvailable = (presaleBuyers[msg.sender]
             .weightedBalance * totalPresalePoolAmount) / totalPresaleWeightedBalance;
 
@@ -259,10 +267,14 @@ contract Presale is AccessControl, ReentrancyGuard {
         // Setup Uniswap Router and create pair
         IUniswapV2Router02 uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
         IERC20 token = IERC20(pasv_token);
+        uint256 contractBalance = address(this).balance;
         token.approve(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D, TOTAL_SUPPLY);
-        uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(address(this), uniswapV2Router.WETH());
-        uniswapV2Router.addLiquidityETH{value: msg.value }(pasv_token,totalLiquidityPoolAmount,0,0, manager_1,block.timestamp);
+        uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory()).createPair(pasv_token, uniswapV2Router.WETH());
+        uniswapV2Router.addLiquidityETH{value: contractBalance }(pasv_token,totalLiquidityPoolAmount,totalLiquidityPoolAmount,contractBalance, marketing_wallet, block.timestamp);
         IERC20(uniswapV2Pair).approve(address(uniswapV2Router), type(uint).max);
 
+        // Send leftover to marketing marketing
+        contractBalance = address(this).balance;
+        marketing_wallet.send(contractBalance);
     }
 }
